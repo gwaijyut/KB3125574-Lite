@@ -1,0 +1,11 @@
+KB3125574-Lite
+version:  1.0.0
+build:    20260709.public-v1.0.0
+source-baseline: 3.0.0 / 20260709.milestone-final-104
+status:   public release
+deployment-baseline: Microsoft original Windows 7 SP1 x64 zh-CN Ultimate WIM
+target-language-payloads: 1138 (neutral + zh-CN + en-US)
+base-packages: 90 covering 1079/1138
+features-profile: 101 packages covering 1126/1138
+platform-update-profile: 104 packages covering 1138/1138
+validation: full-feature target manifest completed 104/104 on fresh Features + KB2670838 WIM

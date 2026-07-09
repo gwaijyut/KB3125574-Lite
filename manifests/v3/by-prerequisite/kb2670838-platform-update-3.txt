@@ -1,0 +1,4 @@
+# Requires Windows 7 Platform Update (KB2670838) exact Win8IP parents.
+965
+2627
+3152

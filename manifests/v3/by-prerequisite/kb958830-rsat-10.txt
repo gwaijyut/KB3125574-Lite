@@ -1,0 +1,12 @@
+# Requires Microsoft Remote Server Administration Tools (KB958830) exact
+# 6.1.7601.17514 parent identities.
+366
+374
+382
+798
+799
+808
+816
+818
+834
+1101

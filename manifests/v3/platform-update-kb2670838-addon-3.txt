@@ -1,0 +1,5 @@
+# Validated 3/3. Install only when KB2670838 exact parents are present.
+# Adds the final 12 target-language terminal payloads.
+965
+2627
+3152

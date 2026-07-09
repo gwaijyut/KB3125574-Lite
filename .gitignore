@@ -1,0 +1,24 @@
+# Build / test artifacts
+*.log
+install_result.txt
+test_result_*.txt
+packages-*.csv
+qfe-*.txt
+dism-*.txt
+
+# Working directories
+/Lite_Build/
+/Mount/
+*.wim
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.swp
+*~
+
+# The KB3125574 source is NOT redistributed here; obtain from Microsoft Update Catalog
+KB3125574-v4-x64/
+*.msu
+*.cab
+*.zip

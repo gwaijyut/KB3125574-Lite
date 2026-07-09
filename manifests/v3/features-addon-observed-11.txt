@@ -1,0 +1,14 @@
+# KB3125574-Lite 3.0.0-rc.5 Features add-on for the original-WIM base.
+# All packages were observed successful after NTLite integrated Features.
+# Adds 47 target-language terminal payloads to the portable 90-package base.
+366
+374
+382
+798
+799
+808
+816
+818
+834
+859
+1101
