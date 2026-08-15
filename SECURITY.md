@@ -10,6 +10,10 @@ protected areas. Understand these points before use.
   in "Installed Updates". Doing so requires temporarily taking ownership of
   TrustedInstaller-owned registry keys in the OFFLINE hive, then restoring the
   original owner and ACL. The scripts verify ACL restoration.
+- Refuse to create a missing `Visibility` value or overwrite a value that is not
+  DWORD `1` or `2`. Every write is read back and verified.
+- Treat package-write failures, ACL restoration mismatches, and offline-hive
+  unload failures as fatal errors.
 - Write a generated uninstaller to the offline image root. After deployment, its
   default action restores Installed Updates visibility on the running system.
 
@@ -32,6 +36,9 @@ The main installer writes `Uninstall-KB3125574-Lite.{ps1,cmd}` and
 standalone hide script also writes them unless `-NoUninstaller` is used. The
 default action restores visibility (safe, reversible). A guarded, high-risk
 option removes the packages (requires typing REMOVE to confirm).
+
+The standalone offline hide script supports `-WhatIf`. Preview mode loads and
+unloads the offline SOFTWARE hive but does not modify package values or ACLs.
 
 ## Execution policy
 Scripts are unsigned. Use `Run-Install.cmd` (launches with -ExecutionPolicy Bypass)

@@ -25,7 +25,9 @@ param(
     [Parameter(Mandatory=$true)][string]$Mount,
     [int[]]$Numbers = @(), # optional package-number scope; omit to process every KB3125574 subpackage key
     [switch]$NoUninstaller,  # suppress uninstaller generation (set by Install to avoid double-write)
-    [switch]$Show
+    [switch]$Show,
+    [switch]$WhatIf,
+    [switch]$PassThru
 )
 
 $ErrorActionPreference = 'Stop'
@@ -413,9 +415,12 @@ namespace OfflineCbs
         [DllImport("advapi32.dll", CharSet=CharSet.Unicode)] static extern int RegOpenKeyEx(UIntPtr key,string sub,uint opt,int acc,out IntPtr res);
         [DllImport("advapi32.dll")] static extern int RegSetKeySecurity(IntPtr key,uint si,byte[] sd);
         [DllImport("advapi32.dll")] static extern int RegCloseKey(IntPtr key);
+        [DllImport("advapi32.dll", CharSet=CharSet.Unicode, EntryPoint="RegQueryValueExW")]
+        static extern int RegQueryValueEx(IntPtr key,string name,IntPtr reserved,out int type,byte[] data,ref int len);
         [DllImport("advapi32.dll", CharSet=CharSet.Unicode, EntryPoint="RegSetValueExW")]
         static extern int RegSetValueEx(IntPtr key,string name,int res,int type,byte[] data,int len);
 
+        const int KEY_QUERY_VALUE = 0x0001;
         const int KEY_SET_VALUE = 0x0002;
 
         public static void Enable(string priv)
@@ -449,6 +454,23 @@ namespace OfflineCbs
             } finally { RegCloseKey(key); }
         }
 
+        // read and validate REG_DWORD without letting the .NET provider pin the hive
+        public static int GetDword(string subKey, string name)
+        {
+            IntPtr key = IntPtr.Zero;
+            int r = RegOpenKeyEx(HKLM, subKey, 0, KEY_QUERY_VALUE, out key);
+            if(r!=0) throw new Win32Exception(r,"RegOpenKeyEx(query) HKLM\\"+subKey);
+            try {
+                int type = 0, len = 4;
+                byte[] data = new byte[4];
+                r = RegQueryValueEx(key, name, IntPtr.Zero, out type, data, ref len);
+                if(r!=0) throw new Win32Exception(r,"RegQueryValueEx HKLM\\"+subKey+"\\"+name);
+                if(type!=4 || len!=4)
+                    throw new InvalidOperationException("Registry value is not REG_DWORD: HKLM\\"+subKey+"\\"+name);
+                return BitConverter.ToInt32(data,0);
+            } finally { RegCloseKey(key); }
+        }
+
         // write REG_DWORD without letting the .NET provider pin the hive
         public static void SetDword(string subKey, string name, int value)
         {
@@ -464,7 +486,9 @@ namespace OfflineCbs
     }
 }
 '@
-Add-Type -TypeDefinition $native -Language CSharp
+if (-not ('OfflineCbs.Native' -as [type])) {
+    Add-Type -TypeDefinition $native -Language CSharp | Out-Null
+}
 
 function Get-ComparableSddl([string]$Sddl) {
     $d = $Sddl.IndexOf('D:', [StringComparison]::Ordinal)
@@ -478,7 +502,8 @@ function Get-ComparableSddl([string]$Sddl) {
 # ---- load hive ----
 $mn = 'OfflineLite_' + ([Guid]::NewGuid().ToString('N').Substring(0,8))
 $loaded = $false
-$chg = 0; $already = 0; $failed = 0; $script:hiddenNums = @()
+$chg = 0; $already = 0; $preview = 0; $failed = 0; $script:hiddenNums = @()
+$unloadFailed = $false
 try {
     & reg.exe load "HKLM\$mn" "$hive" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "reg load failed for $hive" }
@@ -511,6 +536,8 @@ try {
             }
         })
     Write-Host ("[*] {0} KB3125574 sub-package key(s) found; target Visibility={1}" -f $names.Count, $targetVis)
+    if ($names.Count -eq 0) { throw "No matching KB3125574 package keys were found." }
+    if ($WhatIf) { Write-Host "[*] WhatIf: registry values and ACLs will not be changed." -ForegroundColor Yellow }
 
     $sec = [Security.AccessControl.AccessControlSections]::Owner -bor `
            [Security.AccessControl.AccessControlSections]::Access
@@ -520,47 +547,84 @@ try {
         $psKey = "HKLM:\$rel"             # provider path, only for Get-Acl (read)
         $origSddl = $null
         $tookOwnership = $false
+        $restoreFailed = $false
         try {
+            $currentVis = [OfflineCbs.Native]::GetDword($rel, 'Visibility')
+            if ($currentVis -ne 1 -and $currentVis -ne 2) {
+                throw "Visibility=$currentVis; only 1 or 2 is supported."
+            }
+            if ($currentVis -eq $targetVis) {
+                Write-Host ("  [already] {0} Visibility={1}" -f $leaf, $currentVis) -ForegroundColor DarkGray
+                $already++
+                continue
+            }
+            if ($WhatIf) {
+                Write-Host ("  [preview] {0} Visibility {1} -> {2}" -f $leaf, $currentVis, $targetVis)
+                $preview++
+                continue
+            }
+
             $origAcl  = Get-Acl -Path $psKey
             $origSddl = $origAcl.GetSecurityDescriptorSddlForm($sec)
+            try {
+                # take ownership (Administrators)
+                $oAcl = New-Object Security.AccessControl.RegistrySecurity
+                $oAcl.SetSecurityDescriptorSddlForm($origSddl, $sec)
+                $oAcl.SetOwner($admins)
+                [OfflineCbs.Native]::SetSecurity($rel, $oAcl.GetSecurityDescriptorBinaryForm(), 0x1, 0x00080000) # WRITE_OWNER
+                $tookOwnership = $true
 
-            # take ownership (Administrators)
-            $oAcl = New-Object Security.AccessControl.RegistrySecurity
-            $oAcl.SetSecurityDescriptorSddlForm($origSddl, $sec)
-            $oAcl.SetOwner($admins)
-            [OfflineCbs.Native]::SetSecurity($rel, $oAcl.GetSecurityDescriptorBinaryForm(), 0x1, 0x00080000) # WRITE_OWNER
-            $tookOwnership = $true
+                # grant FullControl to Administrators
+                $wAcl = Get-Acl -Path $psKey
+                $rule = New-Object Security.AccessControl.RegistryAccessRule(
+                    $admins,[Security.AccessControl.RegistryRights]::FullControl,
+                    [Security.AccessControl.AccessControlType]::Allow)
+                [void]$wAcl.SetAccessRule($rule)
+                [OfflineCbs.Native]::SetSecurity($rel, $wAcl.GetSecurityDescriptorBinaryForm(), 0x4, 0x00040000) # WRITE_DAC
 
-            # grant FullControl to Administrators
-            $wAcl = Get-Acl -Path $psKey
-            $rule = New-Object Security.AccessControl.RegistryAccessRule(
-                $admins,[Security.AccessControl.RegistryRights]::FullControl,
-                [Security.AccessControl.AccessControlType]::Allow)
-            [void]$wAcl.SetAccessRule($rule)
-            [OfflineCbs.Native]::SetSecurity($rel, $wAcl.GetSecurityDescriptorBinaryForm(), 0x4, 0x00040000) # WRITE_DAC
-
-            # write the value natively (no provider handle on the hive)
-            [OfflineCbs.Native]::SetDword($rel, 'Visibility', $targetVis)
-            $chg++
-            if ($leaf -match '^Package_(\d+)_for_KB3125574~') { $script:hiddenNums += [int]$Matches[1] }
-        }
-        catch { $failed++; Write-Warning ("[{0}] {1}" -f $leaf, $_.Exception.Message) }
-        finally {
-            if ($tookOwnership -and $origSddl) {
-                # restore original owner + DACL
-                $rAcl = New-Object Security.AccessControl.RegistrySecurity
-                $rAcl.SetSecurityDescriptorSddlForm($origSddl, $sec)
-                [OfflineCbs.Native]::SetSecurity($rel, $rAcl.GetSecurityDescriptorBinaryForm(), 0x5, 0x000C0000) # WRITE_OWNER|WRITE_DAC
-                # verify semantic restoration
-                $back = (Get-Acl -Path $psKey).GetSecurityDescriptorSddlForm($sec)
-                if ((Get-ComparableSddl $back) -ne (Get-ComparableSddl $origSddl)) {
-                    Write-Warning ("[{0}] ACL restore verification differs" -f $leaf)
+                # write and verify the value natively (no provider handle on the hive)
+                [OfflineCbs.Native]::SetDword($rel, 'Visibility', $targetVis)
+                $writtenVis = [OfflineCbs.Native]::GetDword($rel, 'Visibility')
+                if ($writtenVis -ne $targetVis) {
+                    throw "Visibility verification failed: expected $targetVis, read $writtenVis."
                 }
+            }
+            finally {
+                if ($tookOwnership -and $origSddl) {
+                    try {
+                        # restore original owner + DACL
+                        $rAcl = New-Object Security.AccessControl.RegistrySecurity
+                        $rAcl.SetSecurityDescriptorSddlForm($origSddl, $sec)
+                        [OfflineCbs.Native]::SetSecurity($rel, $rAcl.GetSecurityDescriptorBinaryForm(), 0x5, 0x000C0000) # WRITE_OWNER|WRITE_DAC
+                        # verify semantic restoration
+                        $back = (Get-Acl -Path $psKey).GetSecurityDescriptorSddlForm($sec)
+                        if ((Get-ComparableSddl $back) -ne (Get-ComparableSddl $origSddl)) {
+                            throw "ACL restore verification differs."
+                        }
+                    }
+                    catch {
+                        $restoreFailed = $true
+                        throw
+                    }
+                }
+            }
+
+            $chg++
+            if (-not $Show -and $leaf -match '^Package_(\d+)_for_KB3125574~') {
+                $script:hiddenNums += [int]$Matches[1]
+            }
+        }
+        catch {
+            $failed++
+            Write-Warning ("[{0}] {1}" -f $leaf, $_.Exception.Message)
+            if ($restoreFailed) {
+                Write-Warning "ACL restoration failed; no further package keys will be modified."
+                break
             }
         }
     }
-    Write-Host ("[hide] Done: changed {0}, failed {1} (of {2})" -f $chg, $failed, $names.Count)
-    if ($script:hiddenNums.Count -gt 0 -and -not $NoUninstaller) {
+    Write-Host ("[hide] Done: changed {0}, already {1}, preview {2}, failed {3} (of {4})" -f $chg, $already, $preview, $failed, $names.Count)
+    if ($failed -eq 0 -and $script:hiddenNums.Count -gt 0 -and -not $NoUninstaller -and -not $WhatIf -and -not $Show) {
         try { Write-UninstallScript -RootDir $Mount -Numbers ([int[]]$script:hiddenNums) }
         catch { Write-Warning "[uninstall] could not generate uninstaller: $_" }
     }
@@ -577,8 +641,21 @@ finally {
             [GC]::Collect(); [GC]::WaitForPendingFinalizers()
             & reg.exe unload "HKLM\$mn" | Out-Null
             if ($LASTEXITCODE -ne 0) {
+                $unloadFailed = $true
                 Write-Warning "reg unload still failing. Close this PowerShell window (frees handles), then: reg unload HKLM\$mn"
             }
         }
+    }
+}
+
+if ($unloadFailed) { throw "Offline SOFTWARE hive could not be unloaded: HKLM\$mn" }
+if ($failed -gt 0) { throw "$failed package visibility operation(s) failed." }
+if ($PassThru) {
+    New-Object PSObject -Property @{
+        ChangedNumbers = [int[]]@($script:hiddenNums | Sort-Object -Unique)
+        Changed = $chg
+        Already = $already
+        Preview = $preview
+        Failed = $failed
     }
 }

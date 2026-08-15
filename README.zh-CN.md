@@ -2,7 +2,7 @@
 
 [English](README.md) | **中文**
 
-**对外发布版本 v1.0.0**  
+**对外发布版本 v1.0.1**
 来源基线：`3.0.0 / 20260709.milestone-final-104`
 
 从 Windows 7 x64 便利更新卷（**KB3125574**）中，只安装仍然属于断代荷载的子包。脚本直接使用你自己解包得到的 KB3125574 源目录。
@@ -101,7 +101,9 @@ dism /Unmount-Image /MountDir:D:\Mount /Commit
 
 - 包仍然处于已安装状态；隐藏只影响“已安装更新”可见性。
 - 安装器只隐藏本次清单实际匹配到的包号。
-- CBS package key 归 TrustedInstaller 所有，脚本会临时接管 ACL，写入后再恢复原 owner 和 ACL。
+- 只接受已经存在且类型为 DWORD、数值为 `1` 或 `2` 的 `Visibility`；脚本不会创建缺失值。
+- 每次写入后都会重新读取并验证。
+- CBS package key 归 TrustedInstaller 所有，脚本会临时接管 ACL，写入后再恢复原 owner 和 ACL；写入、ACL 恢复或离线 hive 卸载失败都会中止流程。
 - 如果不想隐藏，传入 `-NoHide`。
 
 示例：
@@ -110,7 +112,7 @@ dism /Unmount-Image /MountDir:D:\Mount /Commit
 scripts\Run-Install.cmd -Mount D:\Mount -Source X:\KB3125574-v4-x64 -List manifests\v3\base-original-observed-90.txt -NoHide
 ```
 
-安装器还会在离线镜像根目录写入以下文件；部署后它们位于 `C:\`：
+至少有一个值从可见改为隐藏时，安装器才会在离线镜像根目录写入以下文件；部署后它们位于 `C:\`：
 
 - `Uninstall-KB3125574-Lite.ps1`
 - `Uninstall-KB3125574-Lite.cmd`
@@ -132,7 +134,11 @@ Uninstall-KB3125574-Lite.cmd remove
 
 这个动作会对生成清单中的包调用 `dism /online /Remove-Package`，并要求手动输入 `REMOVE` 才会继续。仅在你明确要回滚这些集成包时使用；删除断代组件可能破坏后续更新或组件状态。
 
-随包也提供独立维护脚本 `scripts\Hide-OfflineKB3125574.ps1`。如果不传 `-Numbers`，它会处理离线镜像中所有 KB3125574 子包 key；主安装器调用它时会显式传入包号范围。
+随包也提供独立维护脚本 `scripts\Hide-OfflineKB3125574.ps1`。如果不传 `-Numbers`，它会处理离线镜像中所有 KB3125574 子包 key；主安装器调用它时会显式传入包号范围。可使用 `-WhatIf` 预览当前值和目标值，不修改注册表值或 ACL：
+
+```powershell
+.\scripts\Hide-OfflineKB3125574.ps1 -Mount D:\Mount -Numbers 366,374,382 -WhatIf
+```
 
 ## 适用范围与限制
 
