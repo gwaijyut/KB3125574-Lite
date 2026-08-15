@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md)
 
-**Public release v1.0.0**  
+**Public release v1.0.1**
 Source baseline: `3.0.0 / 20260709.milestone-final-104`
 
 Install only the still-terminal payload carriers from the Windows 7 x64 Convenience Rollup (**KB3125574**), directly from an unpacked KB3125574 source directory.
@@ -101,7 +101,9 @@ Important behavior:
 
 - The integrated packages are still installed; only their Installed Updates visibility is changed.
 - The installer hides only the package numbers matched from the selected manifest.
-- ACLs on TrustedInstaller-owned CBS package keys are temporarily changed and then restored.
+- Only an existing DWORD `Visibility` value of `1` or `2` is accepted. The script never creates a missing value.
+- Every write is read back and verified.
+- ACLs on TrustedInstaller-owned CBS package keys are temporarily changed and then restored; a write, ACL restoration, or offline-hive unload failure stops the run.
 - To skip this step, pass `-NoHide`.
 
 Example:
@@ -110,7 +112,7 @@ Example:
 scripts\Run-Install.cmd -Mount D:\Mount -Source X:\KB3125574-v4-x64 -List manifests\v3\base-original-observed-90.txt -NoHide
 ```
 
-The installer also writes these files to the offline image root, which becomes `C:\` after deployment:
+When at least one value changes from visible to hidden, the installer writes these files to the offline image root, which becomes `C:\` after deployment:
 
 - `Uninstall-KB3125574-Lite.ps1`
 - `Uninstall-KB3125574-Lite.cmd`
@@ -132,7 +134,11 @@ Uninstall-KB3125574-Lite.cmd remove
 
 This calls `dism /online /Remove-Package` for the generated package list and asks you to type `REMOVE` before proceeding. Use it only if you intentionally want to roll back the integrated packages; removing terminal components can break later updates or component state.
 
-The standalone `scripts\Hide-OfflineKB3125574.ps1` is also included for maintenance use. When called without `-Numbers`, it processes every KB3125574 subpackage key found in the offline image. The main installer calls it with an explicit package-number scope.
+The standalone `scripts\Hide-OfflineKB3125574.ps1` is also included for maintenance use. When called without `-Numbers`, it processes every KB3125574 subpackage key found in the offline image. The main installer calls it with an explicit package-number scope. Use `-WhatIf` to preview current and target values without changing registry values or ACLs.
+
+```powershell
+.\scripts\Hide-OfflineKB3125574.ps1 -Mount D:\Mount -Numbers 366,374,382 -WhatIf
+```
 
 ## Scope and limits
 

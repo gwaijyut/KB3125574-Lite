@@ -1,12 +1,22 @@
-# KB3125574-Lite v1.0.0
+# KB3125574-Lite v1.0.1
 
-Public build: `20260709.public-v1.0.0`
+Public build: `20260815.public-v1.0.1`
 
 Source baseline: `3.0.0 / 20260709.milestone-final-104`
 
-This is the first public release of the validated final-104 baseline.
+This patch release keeps the validated final-104 package manifests unchanged
+and hardens the offline Installed Updates visibility workflow.
 
-Included:
+Visibility safety changes:
+
+- accept only existing DWORD `Visibility` values of `1` or `2`;
+- verify every write by reading it back;
+- fail on any package write, ACL restoration, or hive unload error;
+- add standalone `-WhatIf` preview support;
+- generate the restore script only for values actually changed from `1` to `2`;
+- stop the default install path if the hide helper is missing.
+
+The package-set baseline remains unchanged:
 
 - 90-package original-WIM baseline manifest covering 1079/1138 target payloads.
 - 11-package Features add-on, producing the 101-package Features profile covering 1126/1138.

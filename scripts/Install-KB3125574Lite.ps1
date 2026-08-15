@@ -592,8 +592,7 @@ function Invoke-OfflineHide {
     # Visibility, restores the ACL, and releases all handles before reg unload.
     $hideScript = Join-Path $ScriptDir 'Hide-OfflineKB3125574.ps1'
     if (-not (Test-Path -LiteralPath $hideScript)) {
-        Write-Warning "[hide] Hide-OfflineKB3125574.ps1 not found next to this script; skipping hide."
-        return
+        throw "[hide] Hide-OfflineKB3125574.ps1 not found next to this script."
     }
     # Load the hide script as a script block rather than invoking the file
     # directly. Invoking a .ps1 file (& $path) is subject to the execution
@@ -602,21 +601,36 @@ function Invoke-OfflineHide {
     # is not gated by the file-level signature check.
     $hideContent = Get-Content -LiteralPath $hideScript -Raw
     $hideBlock   = [ScriptBlock]::Create($hideContent)
-    & $hideBlock -Mount $MountDir -Numbers $Numbers -NoUninstaller
+    $result = & $hideBlock -Mount $MountDir -Numbers $Numbers -NoUninstaller -PassThru
+    if ($null -eq $result) { throw "[hide] Hide script returned no result." }
+    if ([int]$result.Failed -ne 0) { throw "[hide] Hide script reported failures." }
+    return $result
 }
 
+$hideResult = $null
 if ($NoHide)       { Write-Host "[*] -NoHide set; skipping hide step." }
 elseif ($ok -eq 0) { Write-Host "[*] No package integrated successfully; skipping hide step." }
 else {
     Write-Host "[*] Silently hiding integrated KB3125574 sub-packages..."
-    Invoke-OfflineHide -MountDir $Mount -Numbers ([int[]]$matchedNums)
+    $hideResult = Invoke-OfflineHide -MountDir $Mount -Numbers ([int[]]$matchedNums)
 }
 
 # generate uninstaller at the image root (offline: $Mount ; deploys as C:\)
-if ($ok -gt 0) {
-    try { Write-UninstallScript -RootDir $Mount -Numbers ([int[]]$matchedNums) }
+if ($null -ne $hideResult -and @($hideResult.ChangedNumbers).Count -gt 0) {
+    try { Write-UninstallScript -RootDir $Mount -Numbers ([int[]]$hideResult.ChangedNumbers) }
     catch { Write-Warning "[uninstall] could not generate uninstaller: $_" }
+}
+elseif ($null -ne $hideResult) {
+    Write-Host "[*] No visibility values changed; no visibility-restore script was generated."
 }
 
 Write-Host ""
-Write-Host "[DONE] Integrated ok=$ok / failed=$($fail.Count). Uninstaller written to image root. Now: dism /Unmount-Image /Commit, then deploy & verify." -ForegroundColor Cyan
+$visibilitySummary = "hide skipped"
+if (-not $NoHide) {
+    if (($null -ne $hideResult) -and (@($hideResult.ChangedNumbers).Count -gt 0)) {
+        $visibilitySummary = "hidden=$($hideResult.Changed); restore script written"
+    } else {
+        $visibilitySummary = "hidden=0; restore script not needed"
+    }
+}
+Write-Host "[DONE] Integrated ok=$ok / failed=$($fail.Count); $visibilitySummary. Now: dism /Unmount-Image /Commit, then deploy & verify." -ForegroundColor Cyan
