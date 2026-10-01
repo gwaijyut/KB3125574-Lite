@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md)
 
-**Public release v1.0.2**
+**Public release v1.0.2** — ⚠ not yet verified on a real Windows 7 machine.
 Source baseline: `3.0.0 / 20260709.milestone-final-104`
 
 Install only the still-terminal payload carriers from the Windows 7 x64 Convenience Rollup (**KB3125574**), directly from an unpacked KB3125574 source directory.

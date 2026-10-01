@@ -4,6 +4,8 @@ All notable public changes to KB3125574-Lite are recorded here.
 
 ## [v1.0.2] - 2026-10-01
 
+> ⚠ **暂未真机验证**：本版本尚未在真实 Windows 7 环境实测，欢迎使用后反馈问题。
+
 ### Fixed
 
 - Fix the generated `Uninstall-KB3125574-Lite.ps1` default restore path: LEVEL 1
