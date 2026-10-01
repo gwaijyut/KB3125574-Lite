@@ -1,6 +1,6 @@
 KB3125574-Lite
-version:  1.0.1
-build:    20260815.public-v1.0.1
+version:  1.0.2
+build:    20261001.public-v1.0.2
 source-baseline: 3.0.0 / 20260709.milestone-final-104
 status:   public release
 deployment-baseline: Microsoft original Windows 7 SP1 x64 zh-CN Ultimate WIM

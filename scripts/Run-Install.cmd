@@ -10,7 +10,8 @@ net session >nul 2>&1
 if %errorlevel% neq 0 goto :notadmin
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-KB3125574Lite.ps1" %*
 set rc=%errorlevel%
-pause
+REM Set NOPAUSE=1 in the environment for unattended/scripted runs.
+if not defined NOPAUSE pause
 exit /b %rc%
 
 :notadmin
